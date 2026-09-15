@@ -1,0 +1,28 @@
+<!doctype html><meta charset="utf-8"><title>Move library</title><canvas id="c"></canvas>
+<script type="module">
+import { draw, solve, groundOffset, NEUTRAL } from '../src/figure.js';
+import { DANCER } from '../src/character.js';
+import { MOVES, BEATS_PER_MOVE } from '../src/moves.js';
+
+const CW = 150, CH = 250, S = 0.52, LW = 88;
+const c = document.getElementById('c');
+const W = LW + CW * BEATS_PER_MOVE, H = CH * MOVES.length;
+c.width = W*2; c.height = H*2; c.style.width = W+'px';
+const x = c.getContext('2d'); x.scale(2,2);
+x.fillStyle = '#F7F8F5'; x.fillRect(0,0,W,H);
+const base = groundOffset({ ...DANCER, scale: S });
+
+MOVES.forEach((m, r) => {
+  const y = r * CH;
+  x.fillStyle = '#D93A1F'; x.font = '600 12px ui-sans-serif,sans-serif';
+  x.fillText(m.name, 8, y + 28);
+  x.fillStyle = '#9aa39e'; x.font = '9px ui-monospace,monospace';
+  x.fillText((m.from || '').replace('dancer ',''), 8, y + 44);
+  x.fillStyle = '#000';
+  m.poses.forEach((p, i) => {
+    draw(x, { ...DANCER, scale: S }, { ...NEUTRAL, ...p }, LW + CW/2 + i*CW, y + CH - 24 - base);
+  });
+  x.strokeStyle = '#e2e6e1'; x.beginPath(); x.moveTo(0, y+0.5); x.lineTo(W, y+0.5); x.stroke();
+});
+document.title = 'ready';
+</script>

@@ -1,0 +1,134 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dancing</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f4f2ec; color: #111;
+         font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  #stageWrap { position: relative; width: 100%; height: 62vh; min-height: 320px; }
+  #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .panel { max-width: 860px; margin: 0 auto; padding: 0 16px 40px; }
+  h1 { font-size: 14px; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 4px; }
+  p.sub { margin: 0 0 20px; color: #6b665c; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 18px; }
+  button { font: inherit; padding: 7px 13px; border: 1px solid #d6d1c6; border-radius: 999px;
+           background: #fff; color: #111; cursor: pointer; }
+  button:hover { border-color: #111; }
+  button.on { background: #111; color: #f4f2ec; border-color: #111; }
+  label.slider { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  label.slider span:first-child { width: 110px; color: #6b665c; }
+  label.slider output { width: 54px; text-align: right; font-variant-numeric: tabular-nums;
+                        font-family: ui-monospace, monospace; }
+  input[type=range] { flex: 1; accent-color: #111; }
+  .now { font-family: ui-monospace, monospace; color: #6b665c; }
+  .now b { color: #111; }
+</style>
+
+<div id="stageWrap"><canvas id="stage"></canvas></div>
+
+<div class="panel">
+  <h1>Dancing</h1>
+  <p class="sub">Moves lifted off the reference video, replayed as one target pose per beat. Everything between the beats is the springs.</p>
+
+  <div class="row">
+    <button id="play" class="on">Stop</button>
+    <span class="now">move <b id="moveName">—</b> · beat <b id="beatNo">0</b></span>
+  </div>
+
+  <label class="slider"><span>Tempo</span>
+    <input id="bpm" type="range" min="60" max="160" step="1" value="88"><output id="bpmOut">88</output></label>
+  <label class="slider"><span>Energy</span>
+    <input id="energy" type="range" min="0.2" max="1" step="0.02" value="1"><output id="energyOut">1.00</output></label>
+  <label class="slider"><span>Adventurousness</span>
+    <input id="temp" type="range" min="0.05" max="1" step="0.05" value="0.75"><output id="tempOut">0.75</output></label>
+  <label class="slider"><span>Commitment</span>
+    <input id="commit" type="range" min="0" max="0.9" step="0.05" value="0.45"><output id="commitOut">0.45</output></label>
+  <label class="slider"><span>Looseness</span>
+    <input id="loose" type="range" min="0.4" max="2.2" step="0.05" value="1"><output id="looseOut">1.00</output></label>
+</div>
+
+<script type="module">
+import { draw, groundOffset, NEUTRAL } from '../src/figure.js';
+import { DANCER } from '../src/character.js';
+import { Rig } from '../src/rig.js';
+import { Idle } from '../src/idle.js';
+import { Choreographer, Metronome } from '../src/dance.js';
+
+const cv = document.getElementById('stage');
+const wrap = document.getElementById('stageWrap');
+const ctx = cv.getContext('2d');
+const rig = new Rig();
+const idle = new Idle();
+const chor = new Choreographer();
+const met = new Metronome(88);
+
+let playing = true, dpr = 1, cssW = 0, cssH = 0;
+const $ = (id) => document.getElementById(id);
+
+const bind = (id, fn, fmt = (v) => v.toFixed(2)) => {
+  const el = $(id), out = $(id + 'Out');
+  el.addEventListener('input', () => { fn(+el.value); out.textContent = fmt(+el.value); });
+};
+bind('bpm', (v) => { met.bpm = v; }, (v) => String(v));
+bind('energy', (v) => { chor.energy = v; });
+bind('temp', (v) => { chor.temperature = v; });
+bind('commit', (v) => { chor.commitment = v; });
+bind('loose', (v) => { rig.looseness = v; });
+
+$('play').addEventListener('click', () => {
+  playing = !playing;
+  $('play').classList.toggle('on', playing);
+  $('play').textContent = playing ? 'Stop' : 'Dance';
+  if (playing) met.start = null;
+});
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = wrap.getBoundingClientRect();
+  cssW = r.width; cssH = r.height;
+  cv.width = Math.round(cssW * dpr);
+  cv.height = Math.round(cssH * dpr);
+}
+addEventListener('resize', resize);
+resize();
+
+let last = performance.now() / 1000;
+let beatNo = 0;
+
+function frame(now) {
+  now /= 1000;
+  const dt = Math.min(now - last, 0.05);
+  last = now;
+
+  if (playing) {
+    const fired = met.tick(now);
+    for (let i = 0; i < fired; i++) {
+      const step = chor.next();
+      rig.setTarget(step.pose);
+      beatNo++;
+      $('moveName').textContent = step.move ? step.move.name : 'resting';
+      $('beatNo').textContent = beatNo;
+    }
+  } else {
+    const s = idle.step(now, dt);
+    rig.setTarget(s.pose);
+    rig.pose.blink = s.blink;
+    $('moveName').textContent = 'idle';
+  }
+  rig.step(dt);
+
+  const w = cssW, h = cssH;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#f4f2ec';
+  ctx.fillRect(0, 0, w, h);
+
+  const scale = Math.min(h / 330, 1.5);
+  draw(ctx, { ...DANCER, scale }, rig.pose,
+       w / 2, h - 24 - groundOffset({ ...DANCER, scale }));
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__ready = true;
+</script>
