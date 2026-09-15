@@ -79,8 +79,11 @@ export const NEUTRAL = {
   spine: -90, spineY: 0,
   neck: -90, neckY: 0,
 
-  armLU: 80, armLUY: -60, armLF: 84, armLFY: -50,
-  armRU: 80, armRUY: 60, armRF: 84, armRFY: 50,
+  // Resting arms have to clear the torso to read as arms at all. With a chest
+  // radius of 17.5 and an arm radius of 15, the elbow has to sit past 32.5 from
+  // the centreline or the whole thing merges into one mass.
+  armLU: 74, armLUY: -88, armLF: 82, armLFY: -84,
+  armRU: 74, armRUY: 88, armRF: 82, armRFY: 84,
 
   // A slight fore/aft stagger, so a side-on view does not hide one leg exactly
   // behind the other.

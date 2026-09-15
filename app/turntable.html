@@ -5,8 +5,8 @@ import { DANCER } from '../src/character.js';
 import { POSES } from '../src/poses.js';
 
 const TURNS = [0, 20, 45, 70, 90, 130, 180, 250];
-const NAMES = ['neutral','armOut','armsUp','whip','crouch','point'];
-const CW = 190, CH = 300, S = 0.62;
+const NAMES = ['neutral','armOut','armsUp','whip','crouch','point','away'];
+const CW = 200, CH = 310, S = 0.68;
 const c = document.getElementById('c');
 const W = CW * TURNS.length, H = CH * (1 + NAMES.length);
 c.width = W*2; c.height = H*2; c.style.width = W+'px';
