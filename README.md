@@ -9,6 +9,8 @@ Runs in the browser. Open from a static server:
 npx http-server -p 8099 -s .
 ```
 
+- `app/listen.html` — play him something. He decides whether he likes it.
+- `app/dance.html` — dancing to a metronome, with the move library.
 - `app/index.html` — him, idling. Drag to walk around him; switch on watch
   cursor and he follows it with his eyes.
 - `app/editor.html` — pose editor. Drag joints, drag elsewhere to orbit.
@@ -97,6 +99,46 @@ space and the rig has to agree with it. `groundOffset` and `aimBone` (the
 editor's drag-to-angle inverse) live in `figure.js` for that reason. A page that
 recomputes either one silently breaks when a bone changes — and canvas draws
 nothing at all for `NaN` coordinates, with no error, so it breaks quietly.
+
+## Hearing
+
+`src/listen.js` runs on one AnalyserNode: a level, a spectral-flux onset
+strength, a brightness, and a beat. No library.
+
+Three things in it were not obvious:
+
+- **The novelty curve must be uniformly sampled.** It gets autocorrelated, and
+  a lag only maps to a tempo if every sample is the same distance apart.
+  Animation frames are not — they jitter and throttle — so flux is accumulated
+  into fixed hops off the wall clock rather than one sample per frame.
+- **The autocorrelation uses the biased estimator**, dividing by the window
+  length rather than by the number of overlapping terms. Dividing by the
+  overlap makes long lags look strong on very little evidence; it was scoring
+  31 BPM above everything else.
+- **Flux is bass-weighted.** The kick carries the pulse people move to.
+  Measuring across the whole spectrum lets hats and cymbals, which subdivide,
+  outvote it.
+
+It will not choose an octave for you. The 1991 remix in this repo has its
+strongest 12-second periodicity at 116 — the dotted pulse of its own 174 —
+while an offline pass over the whole track prefers 88. All three are really
+there, so the page shows the rivals and offers a half/double control.
+
+## Deciding
+
+`src/brain.js` is the part the brief actually asked for: an NPC who *can
+decide not to*. He listens for a few bars, nods along while judging, and only
+then commits.
+
+The verdict is a weighted **geometric** mean of tempo fit, brightness fit,
+drive and groove — not a sum. A sum lets a loud track with a good groove paper
+over a tempo he has no feel for, and he ends up dancing to everything, which
+is not a taste but a slot machine that always pays. A product means one weak
+ingredient drags the whole verdict down, the way an opinion works.
+
+His taste is fixed for the life of the instance, so he is recognisably the
+same guy. His mood is resampled every time he judges something, so the same
+track can land differently on different days.
 
 ## Reference material
 
