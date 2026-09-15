@@ -1,0 +1,34 @@
+<!doctype html><meta charset="utf-8"><title>Turntable</title><canvas id="c"></canvas>
+<script type="module">
+import { draw, solve, NEUTRAL } from '../src/figure.js';
+import { DANCER } from '../src/character.js';
+import { POSES } from '../src/poses.js';
+
+const TURNS = [0, 20, 45, 70, 90, 130, 180, 250];
+const NAMES = ['neutral','armOut','armsUp','whip','crouch','point'];
+const CW = 190, CH = 300, S = 0.62;
+const c = document.getElementById('c');
+const W = CW * TURNS.length, H = CH * (1 + NAMES.length);
+c.width = W*2; c.height = H*2; c.style.width = W+'px';
+const x = c.getContext('2d'); x.scale(2,2);
+x.fillStyle = '#F7F8F5'; x.fillRect(0,0,W,H);
+const floor = (s)=>{const j=solve({...DANCER,scale:s},NEUTRAL);return Math.max(j.ankleL[1],j.ankleR[1])+(DANCER.thick.ankle)*s;};
+const base = floor(S);
+
+// Row 0: neutral pose swept through a full turn.
+TURNS.forEach((t,i)=>{
+  draw(x,{...DANCER,scale:S},{...POSES.neutral,turn:t},CW/2+i*CW,CH-46-base);
+  x.fillStyle='#8A9A93'; x.font='11px ui-monospace,monospace';
+  x.fillText('turn '+t+'°',10+i*CW,CH-14); x.fillStyle='#000';
+});
+// Remaining rows: each authored pose, swept.
+NAMES.forEach((n,r)=>{
+  TURNS.forEach((t,i)=>{
+    const y=(r+1)*CH;
+    draw(x,{...DANCER,scale:S},{...POSES[n],turn:t},CW/2+i*CW,y+CH-46-base);
+  });
+  x.fillStyle='#D93A1F'; x.font='600 12px ui-sans-serif,sans-serif';
+  x.fillText(n,10,(r+1)*CH+18); x.fillStyle='#000';
+});
+document.title='ready';
+</script>

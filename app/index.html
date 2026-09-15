@@ -31,7 +31,7 @@
 
 <div class="panel">
   <h1>Dancer — rig test</h1>
-  <p class="sub">He idles on his own. Fire a pose and watch the follow-through: the shoulder arrives first, the hand sails past and comes back.</p>
+  <p class="sub">He idles on his own, and he can see you. Drag the stage to walk around him; switch on <b>watch cursor</b> and he will follow it with his eyes, turning his head first and his body after.</p>
 
   <div class="row" id="poses"></div>
 
@@ -45,9 +45,15 @@
     <input id="zoom" type="range" min="0.5" max="2" step="0.05" value="1">
     <output id="zoomOut">1.00</output>
   </label>
+  <label class="slider">
+    <span>Turn</span>
+    <input id="turn" type="range" min="-180" max="180" step="1" value="20">
+    <output id="turnOut">20&deg;</output>
+  </label>
 
   <div class="row">
     <button id="idleToggle" class="on">Idle: on</button>
+    <button id="watch">Watch cursor: off</button>
     <button id="trails">Ghost trail: off</button>
     <a href="editor.html" style="align-self:center;color:#6b665c">pose editor →</a>
   </div>
@@ -58,10 +64,16 @@
     pose set on the beat — the springs generate everything between.
     Looseness scales the damping: below <code>1</code> he goes robotic, above it he goes rubbery.
   </p>
+  <p class="note">
+    The skeleton is 3D; the renderer is not. Joints solve in his own space, turn, project to
+    the screen, then draw as the same flat capsules. That works because the art style has no
+    surface to get wrong &mdash; a black capsule looks identical from every angle. His eyes are
+    two discs riding the head sphere, so they foreshorten and slip round the side as he turns.
+  </p>
 </div>
 
 <script type="module">
-import { draw, solve, NEUTRAL } from '../src/figure.js';
+import { draw, solve, groundOffset, NEUTRAL } from '../src/figure.js';
 import { DANCER } from '../src/character.js';
 import { POSES } from '../src/poses.js';
 import { Rig } from '../src/rig.js';
@@ -73,7 +85,9 @@ const ctx = cv.getContext('2d');
 const rig = new Rig(POSES.neutral);
 const idle = new Idle();
 
-let zoom = 1, useIdle = true, ghost = false, holdUntil = 0, held = null;
+let zoom = 1, useIdle = true, ghost = false, watch = false;
+let holdUntil = 0, held = null;
+let orbit = 20, orbitting = null;
 const ghosts = [];
 
 // Pose buttons
@@ -89,6 +103,42 @@ const loose = document.getElementById('loose'), looseOut = document.getElementBy
 loose.oninput = () => { rig.looseness = +loose.value; looseOut.textContent = (+loose.value).toFixed(2); };
 const zoomEl = document.getElementById('zoom'), zoomOut = document.getElementById('zoomOut');
 zoomEl.oninput = () => { zoom = +zoomEl.value; zoomOut.textContent = zoom.toFixed(2); };
+const turnEl = document.getElementById('turn'), turnOut = document.getElementById('turnOut');
+const setOrbit = (v) => {
+  orbit = ((v + 180) % 360 + 360) % 360 - 180;
+  turnEl.value = Math.round(orbit);
+  turnOut.textContent = Math.round(orbit) + '\u00b0';
+};
+turnEl.oninput = () => setOrbit(+turnEl.value);
+
+const watchBtn = document.getElementById('watch');
+watchBtn.onclick = () => {
+  watch = !watch;
+  watchBtn.classList.toggle('on', watch);
+  watchBtn.textContent = `Watch cursor: ${watch ? 'on' : 'off'}`;
+  if (!watch) idle.lookAt = null;
+};
+
+// Drag the stage to walk around him.
+cv.style.cursor = 'grab';
+cv.addEventListener('pointerdown', (ev) => {
+  orbitting = { x: ev.clientX, from: orbit };
+  cv.setPointerCapture(ev.pointerId);
+  cv.style.cursor = 'grabbing';
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (orbitting) { setOrbit(orbitting.from + (ev.clientX - orbitting.x) * 0.45); return; }
+  if (!watch) return;
+  // Cursor position as a gaze offset from his neutral facing.
+  const r = cv.getBoundingClientRect();
+  const nx = (ev.clientX - r.left) / r.width * 2 - 1;
+  const ny = (ev.clientY - r.top) / r.height * 2 - 1;
+  idle.lookAt = { yaw: nx * 62, pitch: -ny * 22 };
+});
+const endOrbit = () => { orbitting = null; cv.style.cursor = 'grab'; };
+cv.addEventListener('pointerup', endOrbit);
+cv.addEventListener('pointercancel', endOrbit);
+cv.addEventListener('pointerleave', () => { if (watch) idle.lookAt = null; });
 
 const idleBtn = document.getElementById('idleToggle');
 idleBtn.onclick = () => {
@@ -115,10 +165,7 @@ addEventListener('resize', resize);
 resize();
 
 // Feet below the pelvis origin, so he stands on the floor at any scale.
-const floorOffset = (scale) => {
-  const j = solve({ ...DANCER, scale }, NEUTRAL);
-  return Math.max(j.ankleL[1], j.ankleR[1]) + (DANCER.thick.ankle + DANCER.thick.footDrop) * scale;
-};
+
 
 let last = performance.now() / 1000;
 function frame(now) {
@@ -126,11 +173,16 @@ function frame(now) {
   const dt = Math.min(now - last, 0.05);
   last = now;
 
-  if (held && now < holdUntil) rig.setTarget(held);
+  if (held && now < holdUntil) rig.setTarget({ ...held, turn: orbit + (held.turn - NEUTRAL.turn) });
   else {
     held = null;
-    if (useIdle) { const s = idle.step(now, dt); rig.setTarget(s.pose); rig.pose.blink = s.blink; }
-    else rig.setTarget(POSES.neutral);
+    if (useIdle) {
+      const s = idle.step(now, dt);
+      rig.setTarget({ ...s.pose, turn: s.pose.turn - NEUTRAL.turn + orbit });
+      rig.pose.blink = s.blink;
+    } else {
+      rig.setTarget({ ...POSES.neutral, turn: orbit });
+    }
   }
   rig.step(dt);
 
@@ -141,7 +193,7 @@ function frame(now) {
   ctx.fillRect(0, 0, w, h);
 
   const scale = zoom * Math.min(h / 300, 1.6);
-  const ox = w / 2, oy = h - 26 - floorOffset(scale);
+  const ox = w / 2, oy = h - 26 - groundOffset({ ...DANCER, scale });
 
   if (ghost) {
     ghosts.push({ ...rig.pose });

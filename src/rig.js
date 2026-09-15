@@ -13,10 +13,13 @@ import { NEUTRAL } from './figure.js';
 
 // Channels that are sprung. `facing`, `footL`, `footR` and `blink` are set
 // directly — they are not physical bone angles.
+const PITCH = ['spine', 'neck', 'armLU', 'armLF', 'armRU', 'armRF',
+               'legLU', 'legLF', 'legRU', 'legRF'];
+
+// Every bone now springs on two axes, plus the body turn and the head.
 export const CHANNELS = [
-  'spine', 'neck', 'headTilt',
-  'armLU', 'armLF', 'armRU', 'armRF',
-  'legLU', 'legLF', 'legRU', 'legRF',
+  ...PITCH, ...PITCH.map((b) => b + 'Y'),
+  'turn', 'headTurn', 'headPitch', 'headTilt',
 ];
 
 // Stiffness sets how fast a move lands; the damping ratio alone sets how far
@@ -40,7 +43,16 @@ export const PROFILE = {
   legLF:    { k: 390, z: 0.60 },
   legRU:    { k: 585, z: 0.82 },
   legRF:    { k: 390, z: 0.60 },
+
+  // Turning the whole body is heavier than swinging a limb, and the head
+  // leads it slightly — he looks before he turns.
+  turn:     { k: 260, z: 1.00 },
+  headTurn:  { k: 420, z: 0.70 },
+  headPitch: { k: 420, z: 0.70 },
 };
+
+// Yaw springs match their bone's pitch spring unless named above.
+for (const b of PITCH) if (!PROFILE[b + 'Y']) PROFILE[b + 'Y'] = { ...PROFILE[b] };
 
 // Shortest signed way round from a to b, so a target across ±180 does not
 // send the limb the long way.
@@ -65,7 +77,7 @@ export class Rig {
   // Aim at a new pose. Unsprung keys apply immediately.
   setTarget(pose) {
     this.target = { ...this.target, ...pose };
-    for (const k of ['facing', 'footL', 'footR', 'blink']) {
+    for (const k of ['blink']) {
       if (k in pose) this.pose[k] = pose[k];
     }
   }

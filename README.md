@@ -9,9 +9,13 @@ Runs in the browser. Open from a static server:
 npx http-server -p 8099 -s .
 ```
 
-- `app/index.html` — him, idling. Fire a pose and watch the follow-through.
-- `app/editor.html` — pose editor. Drag joints, copy the pose out.
+- `app/index.html` — him, idling. Drag to walk around him; switch on watch
+  cursor and he follows it with his eyes.
+- `app/editor.html` — pose editor. Drag joints, drag elsewhere to orbit.
+- `app/turntable.html` — every pose at eight body angles, for checking that a
+  pose reads from more than the one camera it was authored at.
 - `lookdev/index.html`, `lookdev/tune.html` — how the character was chosen.
+  These render through a frozen copy of the 2D renderer that existed then.
 
 ## Layout
 
@@ -25,6 +29,29 @@ src/
 app/             the pages you actually open
 lookdev/         the look-dev and tuning sheets, kept as a record
 ```
+
+## The skeleton is 3D; the renderer is not
+
+Joints solve in his own space, turn about the vertical, project to the screen,
+then draw as flat black capsules. That works because the art style has no
+surface — no texture, no shading, no normals — so a capsule looks identical
+from every angle. Almost all the cost of a 3D character lives in the surface he
+does not have.
+
+It also fixed a real problem rather than adding a feature. The old 2D rig could
+not express a front view at all: shoulder separation was offset along screen-x,
+which was also the facing axis, so there was only one lateral direction and the
+far arm kept vanishing into the torso. In 3D, a front view separates the
+shoulders across the screen and a side view separates them in depth, from the
+same skeleton.
+
+Each bone carries a pitch and a yaw (`<bone>Y`). Pitch swings it forward and
+back, yaw swings it out to the side. `turn` is the whole body's yaw: 0 faces
+the camera, 90 is the old side-on view.
+
+His eyes are two discs riding the head sphere, placed by a direction rather
+than a screen offset — so they foreshorten as he turns, slip round the side,
+and come back. That is what lets him look at you, or away.
 
 ## How he is drawn
 
@@ -56,12 +83,20 @@ The consequence worth knowing: **a dance move is just a target pose.** Set a
 new target on the beat and the springs generate every frame between, including
 the follow-through. Almost no keyframes needed.
 
-## Known compromise
+## The hips
 
-His hips are narrow, which is what stopped them reading wide. The cost is that
-his legs sit close together and read as one column with a seam rather than two
-clearly separate legs. Widening the torso instead fixes the legs but swallows
-the arms, so this was the better trade.
+The old fix was narrow hips, which cost him separate-looking legs. In 3D the
+renderer draws a bar between the two hip joints, so the thighs emerge from the
+ends of a wide pelvis rather than flaring out of a narrow one — which holds at
+every angle, not just head-on, and let the hips go back to a normal width.
+
+## Projection lives in one place
+
+`solve` applies perspective per joint, so anything that converts between screen
+space and the rig has to agree with it. `groundOffset` and `aimBone` (the
+editor's drag-to-angle inverse) live in `figure.js` for that reason. A page that
+recomputes either one silently breaks when a bone changes — and canvas draws
+nothing at all for `NaN` coordinates, with no error, so it breaks quietly.
 
 ## Reference material
 

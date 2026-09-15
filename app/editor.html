@@ -32,10 +32,10 @@
   <div id="stageWrap"><canvas id="stage"></canvas></div>
   <aside>
     <h1>Pose editor</h1>
-    <p class="sub">Drag a joint to swing the bone that ends there. Angles are world-space degrees.</p>
+    <p class="sub">Drag a joint to swing the bone that ends there &mdash; a drag solves both its pitch and its yaw. Drag anywhere else to walk around him.</p>
     <div class="row" id="poses"></div>
     <div class="row">
-      <button id="flip">Flip facing</button>
+      <button id="flip">Turn 45&deg;</button>
       <button id="springs">Springs: off</button>
       <button id="copy">Copy pose</button>
     </div>
@@ -45,7 +45,7 @@
 </div>
 
 <script type="module">
-import { draw, solve, NEUTRAL } from '../src/figure.js';
+import { draw, solve, groundOffset, aimBone, NEUTRAL } from '../src/figure.js';
 import { DANCER } from '../src/character.js';
 import { POSES } from '../src/poses.js';
 import { Rig } from '../src/rig.js';
@@ -83,7 +83,7 @@ for (const name of Object.keys(POSES)) {
   bar.appendChild(b);
 }
 
-document.getElementById('flip').onclick = () => { pose.facing *= -1; sync(); };
+document.getElementById('flip').onclick = () => { pose.turn = Math.round(pose.turn + 45); sync(); };
 const springBtn = document.getElementById('springs');
 springBtn.onclick = () => {
   useSprings = !useSprings;
@@ -94,12 +94,15 @@ document.getElementById('copy').onclick = async () => {
   try { await navigator.clipboard.writeText(out.value); } catch {}
 };
 
+const PITCHES = ['spine', 'neck', 'armLU', 'armLF', 'armRU', 'armRF',
+                 'legLU', 'legLF', 'legRU', 'legRF'];
 function sync() {
-  const keys = ['facing', 'spine', 'neck', 'headTilt',
-                'armLU', 'armLF', 'armRU', 'armRF',
-                'legLU', 'legLF', 'legRU', 'legRF'];
-  const body = keys.map((k) => `${k}: ${Math.round(pose[k] * 10) / 10}`).join(', ');
-  out.value = `pose({ ${body} })`;
+  const round = (v) => Math.round((v ?? 0) * 10) / 10;
+  const head = ['turn', 'headTurn', 'headPitch', 'headTilt']
+    .filter((k) => k === 'turn' || round(pose[k]) !== 0)
+    .map((k) => `${k}: ${round(pose[k])}`);
+  const limbs = PITCHES.map((k) => `${k}: ${round(pose[k])}, ${k}Y: ${round(pose[k + 'Y'])}`);
+  out.value = `pose({\n  ${[...head, ...limbs].join(',\n  ')},\n})`;
 }
 
 function resize() {
@@ -111,15 +114,14 @@ function resize() {
 }
 addEventListener('resize', resize);
 
-const floorOffset = (s) => {
-  const j = solve({ ...DANCER, scale: s }, NEUTRAL);
-  return Math.max(j.ankleL[1], j.ankleR[1]) + (DANCER.thick.ankle + DANCER.thick.footDrop) * s;
-};
+
 
 const toLocal = (ev) => {
   const r = cv.getBoundingClientRect();
   return [(ev.clientX - r.left - ox) / scale, (ev.clientY - r.top - oy) / scale];
 };
+
+let orbitting = null;
 
 cv.addEventListener('pointerdown', (ev) => {
   const [mx, my] = toLocal(ev);
@@ -129,19 +131,27 @@ cv.addEventListener('pointerdown', (ev) => {
     const d = Math.hypot(j[h.at][0] - mx, j[h.at][1] - my);
     if (d < bestD) { bestD = d; best = h; }
   }
-  if (best) { dragging = best; cv.classList.add('drag'); cv.setPointerCapture(ev.pointerId); }
+  cv.setPointerCapture(ev.pointerId);
+  if (best) { dragging = best; cv.classList.add('drag'); }
+  else { orbitting = { x: ev.clientX, from: pose.turn }; }
 });
+
 cv.addEventListener('pointermove', (ev) => {
+  if (orbitting) {
+    pose.turn = Math.round(orbitting.from + (ev.clientX - orbitting.x) * 0.5);
+    sync();
+    return;
+  }
   if (!dragging) return;
+
   const [mx, my] = toLocal(ev);
-  const j = solve({ ...DANCER, scale: 1 }, pose);
-  const p = j[dragging.from];
-  // Invert the forward step: x advances by cos(deg) * len * facing.
-  const deg = Math.atan2(my - p[1], (mx - p[0]) / pose.facing) * 180 / Math.PI;
-  pose[dragging.ch] = Math.round(deg * 10) / 10;
+  const { pitch, yaw } = aimBone({ ...DANCER, scale: 1 }, pose, dragging.ch, dragging.from, mx, my);
+  pose[dragging.ch] = Math.round(pitch * 10) / 10;
+  pose[dragging.ch + 'Y'] = Math.round(yaw * 10) / 10;
   sync();
 });
-const stop = () => { dragging = null; cv.classList.remove('drag'); };
+
+const stop = () => { dragging = null; orbitting = null; cv.classList.remove('drag'); };
 cv.addEventListener('pointerup', stop);
 cv.addEventListener('pointercancel', stop);
 
@@ -154,7 +164,7 @@ function frame(now) {
 
   const w = cssW, h = cssH;
   scale = Math.min(h / 300, 1.5);
-  ox = w / 2; oy = h - 30 - floorOffset(scale);
+  ox = w / 2; oy = h - 30 - groundOffset({ ...DANCER, scale });
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#f4f2ec';
