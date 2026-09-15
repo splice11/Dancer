@@ -3,7 +3,7 @@
 // Limb radii are quoted against a head radius of 40, so they read as a
 // fraction of the head the way the reference art does.
 
-const base = { scale: 1, ink: '#111', paper: '#f4f2ec' };
+const base = { scale: 1, ink: '#000', eyeInk: '#fff', paper: '#f4f2ec' };
 
 export const STYLES = {
   A: {

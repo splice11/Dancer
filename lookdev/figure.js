@@ -145,7 +145,7 @@ export function draw(ctx, style, p, ox, oy) {
 
   // eyes
   const E = style.eye;
-  ctx.fillStyle = style.paper;
+  ctx.fillStyle = style.eyeInk || '#fff';
   const tilt = (p.headTilt + E.tilt * f) * D;
   for (const e of [[E.innerX, E.innerY, 1], [E.outerX, E.outerY, E.outerScale]]) {
     const ex = j.head[0] + e[0] * hr * f;
