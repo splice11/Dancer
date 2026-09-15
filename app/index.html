@@ -1,0 +1,162 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dancer</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f4f2ec; color: #111;
+         font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  /* Wrapper carries the layout size; the canvas fills it absolutely. A canvas
+     with no CSS size takes its layout size from its width/height attributes,
+     which makes `canvas.width = clientWidth * dpr` self-amplifying. */
+  #stageWrap { position: relative; width: 100%; height: 66vh; min-height: 320px; }
+  #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .panel { max-width: 860px; margin: 0 auto; padding: 0 16px 40px; }
+  h1 { font-size: 14px; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 4px; }
+  p.sub { margin: 0 0 20px; color: #6b665c; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  button { font: inherit; padding: 7px 13px; border: 1px solid #d6d1c6; border-radius: 999px;
+           background: #fff; color: #111; cursor: pointer; }
+  button:hover { border-color: #111; }
+  button.on { background: #111; color: #f4f2ec; border-color: #111; }
+  label.slider { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  label.slider span:first-child { width: 96px; color: #6b665c; }
+  label.slider output { width: 46px; text-align: right; font-variant-numeric: tabular-nums; }
+  input[type=range] { flex: 1; accent-color: #111; }
+  .note { color: #6b665c; border-top: 1px solid #e3ded4; padding-top: 14px; margin-top: 22px; }
+  code { background: #e9e4d9; padding: 1px 5px; border-radius: 4px; }
+</style>
+
+<div id="stageWrap"><canvas id="stage"></canvas></div>
+
+<div class="panel">
+  <h1>Dancer — rig test</h1>
+  <p class="sub">He idles on his own. Fire a pose and watch the follow-through: the shoulder arrives first, the hand sails past and comes back.</p>
+
+  <div class="row" id="poses"></div>
+
+  <label class="slider">
+    <span>Looseness</span>
+    <input id="loose" type="range" min="0.4" max="2.2" step="0.05" value="1">
+    <output id="looseOut">1.00</output>
+  </label>
+  <label class="slider">
+    <span>Size</span>
+    <input id="zoom" type="range" min="0.5" max="2" step="0.05" value="1">
+    <output id="zoomOut">1.00</output>
+  </label>
+
+  <div class="row">
+    <button id="idleToggle" class="on">Idle: on</button>
+    <button id="trails">Ghost trail: off</button>
+    <a href="editor.html" style="align-self:center;color:#6b665c">pose editor →</a>
+  </div>
+
+  <p class="note">
+    Every bone angle is a damped spring chasing a target. Distal bones are softer,
+    so the elbow leads and the hand trails. A dance move is therefore just a target
+    pose set on the beat — the springs generate everything between.
+    Looseness scales the damping: below <code>1</code> he goes robotic, above it he goes rubbery.
+  </p>
+</div>
+
+<script type="module">
+import { draw, solve, NEUTRAL } from '../src/figure.js';
+import { DANCER } from '../src/character.js';
+import { POSES } from '../src/poses.js';
+import { Rig } from '../src/rig.js';
+import { Idle } from '../src/idle.js';
+
+const cv = document.getElementById('stage');
+const wrap = document.getElementById('stageWrap');
+const ctx = cv.getContext('2d');
+const rig = new Rig(POSES.neutral);
+const idle = new Idle();
+
+let zoom = 1, useIdle = true, ghost = false, holdUntil = 0, held = null;
+const ghosts = [];
+
+// Pose buttons
+const bar = document.getElementById('poses');
+for (const name of Object.keys(POSES)) {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => { held = POSES[name]; holdUntil = performance.now() / 1000 + 1.1; };
+  bar.appendChild(b);
+}
+
+const loose = document.getElementById('loose'), looseOut = document.getElementById('looseOut');
+loose.oninput = () => { rig.looseness = +loose.value; looseOut.textContent = (+loose.value).toFixed(2); };
+const zoomEl = document.getElementById('zoom'), zoomOut = document.getElementById('zoomOut');
+zoomEl.oninput = () => { zoom = +zoomEl.value; zoomOut.textContent = zoom.toFixed(2); };
+
+const idleBtn = document.getElementById('idleToggle');
+idleBtn.onclick = () => {
+  useIdle = !useIdle;
+  idleBtn.classList.toggle('on', useIdle);
+  idleBtn.textContent = `Idle: ${useIdle ? 'on' : 'off'}`;
+};
+const trailBtn = document.getElementById('trails');
+trailBtn.onclick = () => {
+  ghost = !ghost; ghosts.length = 0;
+  trailBtn.classList.toggle('on', ghost);
+  trailBtn.textContent = `Ghost trail: ${ghost ? 'on' : 'off'}`;
+};
+
+let dpr = 1, cssW = 0, cssH = 0;
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = wrap.getBoundingClientRect();
+  cssW = r.width; cssH = r.height;
+  cv.width = Math.round(cssW * dpr);
+  cv.height = Math.round(cssH * dpr);
+}
+addEventListener('resize', resize);
+resize();
+
+// Feet below the pelvis origin, so he stands on the floor at any scale.
+const floorOffset = (scale) => {
+  const j = solve({ ...DANCER, scale }, NEUTRAL);
+  return Math.max(j.ankleL[1], j.ankleR[1]) + (DANCER.thick.ankle + DANCER.thick.footDrop) * scale;
+};
+
+let last = performance.now() / 1000;
+function frame(now) {
+  now /= 1000;
+  const dt = Math.min(now - last, 0.05);
+  last = now;
+
+  if (held && now < holdUntil) rig.setTarget(held);
+  else {
+    held = null;
+    if (useIdle) { const s = idle.step(now, dt); rig.setTarget(s.pose); rig.pose.blink = s.blink; }
+    else rig.setTarget(POSES.neutral);
+  }
+  rig.step(dt);
+
+  const w = cssW, h = cssH;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#f4f2ec';
+  ctx.fillRect(0, 0, w, h);
+
+  const scale = zoom * Math.min(h / 300, 1.6);
+  const ox = w / 2, oy = h - 26 - floorOffset(scale);
+
+  if (ghost) {
+    ghosts.push({ ...rig.pose });
+    if (ghosts.length > 14) ghosts.shift();
+    ghosts.forEach((g, i) => {
+      const a = (i / ghosts.length) * 0.16;
+      ctx.globalAlpha = a;
+      draw(ctx, { ...DANCER, scale }, g, ox, oy);
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  draw(ctx, { ...DANCER, scale }, rig.pose, ox, oy);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__ready = true;
+</script>

@@ -49,10 +49,12 @@ const BONES = {
 // down. World angles because that is exactly what 2D pose estimation gives
 // us, so retargeting mocap later is a direct assignment.
 export const NEUTRAL = {
-  facing: 1, headTilt: 0,
+  facing: 1, headTilt: 0, blink: 1,
   spine: -90, neck: -90,
   armLU: 70, armLF: 76, armRU: 110, armRF: 104,
-  legLU: 88, legLF: 90, legRU: 93, legRF: 90,
+  // Narrow hips put the ankles almost on top of each other, so the resting
+  // stance carries a little front-to-back separation and the legs read as two.
+  legLU: 81, legLF: 86, legRU: 100, legRF: 94,
   footL: 0, footR: 0,
 };
 
@@ -154,7 +156,8 @@ export function draw(ctx, style, p, ox, oy) {
     ctx.translate(ex, ey);
     ctx.rotate(tilt);
     ctx.beginPath();
-    ctx.ellipse(0, 0, E.rx * hr * e[2], E.ry * hr * e[2], 0, 0, Math.PI * 2);
+    const open = p.blink ?? 1;
+    ctx.ellipse(0, 0, E.rx * hr * e[2], E.ry * hr * e[2] * open, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
