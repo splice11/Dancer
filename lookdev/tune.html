@@ -1,0 +1,104 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dancer tuning — build C</title>
+<style>
+  body { margin: 0; background: #f4f2ec; font: 13px ui-sans-serif, system-ui, sans-serif; color: #111; }
+  canvas { display: block; }
+</style>
+<canvas id="sheet"></canvas>
+<script type="module">
+import { draw, solve } from '../src/figure.js';
+import { POSES } from '../src/poses.js';
+import { CANDIDATES, SWEEPS, HIPS, PICK, flare } from './variants.js';
+
+const HERO_W = 305, HERO_H = 400;
+const CELL_W = 244, CELL_H = 320;
+const POSE_W = 152, POSE_H = 300;
+const PAD = 30;
+
+const W = PAD * 2 + 4 * HERO_W;
+const H = PAD + 46 + HERO_H + 40
+        + (SWEEPS.length + 1) * (CELL_H + 66)
+        + POSE_H + 74 + PAD;
+
+const c = document.getElementById('sheet');
+const dpr = 2;
+c.width = W * dpr; c.height = H * dpr;
+c.style.width = W + 'px'; c.style.height = H + 'px';
+const ctx = c.getContext('2d');
+ctx.scale(dpr, dpr);
+ctx.fillStyle = '#f4f2ec';
+ctx.fillRect(0, 0, W, H);
+
+const text = (t, x, y, size = 13, weight = 600, color = '#111') => {
+  ctx.fillStyle = color;
+  ctx.font = `${weight} ${size}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.fillText(t, x, y);
+};
+const wrap = (t, x, y, max, color = '#6b665c', size = 11) => {
+  ctx.fillStyle = color;
+  ctx.font = `${size}px ui-sans-serif, system-ui, sans-serif`;
+  let line = '', yy = y;
+  for (const word of t.split(' ')) {
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > max && line) { ctx.fillText(line, x, yy); yy += 14; line = word; }
+    else line = test;
+  }
+  ctx.fillText(line, x, yy);
+  return yy;
+};
+const centre = (t, cx, y, size, weight, color) => {
+  ctx.font = `${weight} ${size}px ui-sans-serif, system-ui, sans-serif`;
+  text(t, cx - ctx.measureText(t).width / 2, y, size, weight, color);
+};
+
+// Feet below the pelvis origin, so every variant stands on one floor.
+const floor = (st, scale) => {
+  const j = solve({ ...st, scale }, POSES.neutral);
+  return Math.max(j.ankleL[1], j.ankleR[1]) + (st.thick.ankle + st.thick.footDrop) * scale;
+};
+
+// --- combined candidates ---------------------------------------------------
+text('TUNING BUILD C — four combined candidates', PAD, PAD + 16, 14, 700);
+CANDIDATES.forEach((st, i) => {
+  const x = PAD + i * HERO_W, y = PAD + 46;
+  if (i > 0) { ctx.strokeStyle = '#ded9cf'; ctx.beginPath(); ctx.moveTo(x - 8, y); ctx.lineTo(x - 8, y + HERO_H); ctx.stroke(); }
+  text(st.label, x + 8, y + 14, 12, 700);
+  wrap(st.note, x + 8, y + 31, HERO_W - 28);
+  draw(ctx, { ...st, scale: 1.02 }, POSES.neutral, x + HERO_W / 2 - 4, y + HERO_H - 12 - floor(st, 1.02));
+});
+
+// --- single-axis sweeps ----------------------------------------------------
+let y0 = PAD + 46 + HERO_H + 44;
+const ALL = [
+  { title: 'The hip flare — three routes',
+    note: 'Thighs reach hipW/2 + thighTop from the centreline; the pelvis reaches only its own radius. The gap is the flare. Widening the torso closes it but swallows the arms.',
+    items: HIPS },
+  ...SWEEPS,
+];
+for (const sw of ALL) {
+  text(sw.title, PAD, y0, 12, 700);
+  wrap(sw.note, PAD, y0 + 17, W - PAD * 2);
+  const gridW = sw.items.length * CELL_W;
+  const left = PAD + (W - PAD * 2 - gridW) / 2;
+  sw.items.forEach((st, i) => {
+    const x = left + i * CELL_W;
+    const top = y0 + 30;
+    draw(ctx, { ...st, scale: 0.80 }, POSES.neutral, x + CELL_W / 2, top + CELL_H - 30 - floor(st, 0.80));
+    centre(st.label, x + CELL_W / 2, top + CELL_H - 8, 11, 600, '#111');
+    if (st.note) centre(st.note, x + CELL_W / 2, top + CELL_H + 7, 10, 400, '#9a948a');
+  });
+  y0 += CELL_H + 66;
+}
+
+// --- the pick, through the poses -------------------------------------------
+text(`${PICK.label} through the poses`, PAD, y0, 12, 700);
+const posesShown = ['neutral', 'point', 'armsUp', 'walk', 'crouch', 'pointUp', 'whip', 'armOut'];
+posesShown.forEach((pk, i) => {
+  const x = PAD + i * POSE_W;
+  draw(ctx, { ...PICK, scale: 0.62 }, POSES[pk], x + POSE_W / 2, y0 + POSE_H - 30 - floor(PICK, 0.62));
+  centre(pk, x + POSE_W / 2, y0 + POSE_H - 8, 10, 500, '#9a948a');
+});
+
+document.title = 'ready';
+</script>

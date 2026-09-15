@@ -1,0 +1,181 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Pose editor</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f4f2ec; color: #111;
+         font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  .wrap { display: flex; flex-wrap: wrap; min-height: 100vh; }
+  /* The canvas is absolutely positioned inside a sized wrapper. Without that,
+     a canvas with no CSS size takes its layout size from its width/height
+     attributes, so `canvas.width = clientWidth * dpr` feeds back into layout
+     and the element grows every frame. */
+  #stageWrap { flex: 1 1 420px; min-height: 60vh; position: relative; }
+  #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+           cursor: grab; touch-action: none; }
+  #stage.drag { cursor: grabbing; }
+  aside { flex: 0 1 340px; padding: 20px 18px 40px; border-left: 1px solid #e3ded4; background: #faf8f3; }
+  h1 { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 4px; }
+  p.sub { margin: 0 0 16px; color: #6b665c; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  button { font: inherit; padding: 6px 11px; border: 1px solid #d6d1c6; border-radius: 999px;
+           background: #fff; color: #111; cursor: pointer; }
+  button:hover { border-color: #111; }
+  button.on { background: #111; color: #f4f2ec; border-color: #111; }
+  textarea { width: 100%; height: 230px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+             border: 1px solid #d6d1c6; border-radius: 8px; padding: 10px; background: #fff; resize: vertical; }
+  .hint { color: #6b665c; margin-top: 12px; }
+</style>
+
+<div class="wrap">
+  <div id="stageWrap"><canvas id="stage"></canvas></div>
+  <aside>
+    <h1>Pose editor</h1>
+    <p class="sub">Drag a joint to swing the bone that ends there. Angles are world-space degrees.</p>
+    <div class="row" id="poses"></div>
+    <div class="row">
+      <button id="flip">Flip facing</button>
+      <button id="springs">Springs: off</button>
+      <button id="copy">Copy pose</button>
+    </div>
+    <textarea id="out" spellcheck="false"></textarea>
+    <p class="hint">Paste straight into <code>src/poses.js</code>.</p>
+  </aside>
+</div>
+
+<script type="module">
+import { draw, solve, NEUTRAL } from '../src/figure.js';
+import { DANCER } from '../src/character.js';
+import { POSES } from '../src/poses.js';
+import { Rig } from '../src/rig.js';
+
+// Each handle is a joint you can drag, the joint it pivots around, and the
+// channel that drag writes to.
+const HANDLES = [
+  { at: 'chest',  from: 'pelvis',    ch: 'spine' },
+  { at: 'head',   from: 'chestTop',  ch: 'neck'  },
+  { at: 'elbowL', from: 'shoulderL', ch: 'armLU' },
+  { at: 'wristL', from: 'elbowL',    ch: 'armLF' },
+  { at: 'elbowR', from: 'shoulderR', ch: 'armRU' },
+  { at: 'wristR', from: 'elbowR',    ch: 'armRF' },
+  { at: 'kneeL',  from: 'hipL',      ch: 'legLU' },
+  { at: 'ankleL', from: 'kneeL',     ch: 'legLF' },
+  { at: 'kneeR',  from: 'hipR',      ch: 'legRU' },
+  { at: 'ankleR', from: 'kneeR',     ch: 'legRF' },
+];
+
+const cv = document.getElementById('stage');
+const wrap = document.getElementById('stageWrap');
+const ctx = cv.getContext('2d');
+const out = document.getElementById('out');
+const rig = new Rig(POSES.neutral);
+
+let pose = { ...POSES.neutral };
+let useSprings = false, dragging = null, scale = 1, ox = 0, oy = 0, dpr = 1;
+let cssW = 0, cssH = 0;
+
+const bar = document.getElementById('poses');
+for (const name of Object.keys(POSES)) {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => { pose = { ...POSES[name] }; sync(); };
+  bar.appendChild(b);
+}
+
+document.getElementById('flip').onclick = () => { pose.facing *= -1; sync(); };
+const springBtn = document.getElementById('springs');
+springBtn.onclick = () => {
+  useSprings = !useSprings;
+  springBtn.classList.toggle('on', useSprings);
+  springBtn.textContent = `Springs: ${useSprings ? 'on' : 'off'}`;
+};
+document.getElementById('copy').onclick = async () => {
+  try { await navigator.clipboard.writeText(out.value); } catch {}
+};
+
+function sync() {
+  const keys = ['facing', 'spine', 'neck', 'headTilt',
+                'armLU', 'armLF', 'armRU', 'armRF',
+                'legLU', 'legLF', 'legRU', 'legRF'];
+  const body = keys.map((k) => `${k}: ${Math.round(pose[k] * 10) / 10}`).join(', ');
+  out.value = `pose({ ${body} })`;
+}
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = wrap.getBoundingClientRect();
+  cssW = r.width; cssH = r.height;
+  cv.width = Math.round(cssW * dpr);
+  cv.height = Math.round(cssH * dpr);
+}
+addEventListener('resize', resize);
+
+const floorOffset = (s) => {
+  const j = solve({ ...DANCER, scale: s }, NEUTRAL);
+  return Math.max(j.ankleL[1], j.ankleR[1]) + (DANCER.thick.ankle + DANCER.thick.footDrop) * s;
+};
+
+const toLocal = (ev) => {
+  const r = cv.getBoundingClientRect();
+  return [(ev.clientX - r.left - ox) / scale, (ev.clientY - r.top - oy) / scale];
+};
+
+cv.addEventListener('pointerdown', (ev) => {
+  const [mx, my] = toLocal(ev);
+  const j = solve({ ...DANCER, scale: 1 }, pose);
+  let best = null, bestD = 26;
+  for (const h of HANDLES) {
+    const d = Math.hypot(j[h.at][0] - mx, j[h.at][1] - my);
+    if (d < bestD) { bestD = d; best = h; }
+  }
+  if (best) { dragging = best; cv.classList.add('drag'); cv.setPointerCapture(ev.pointerId); }
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!dragging) return;
+  const [mx, my] = toLocal(ev);
+  const j = solve({ ...DANCER, scale: 1 }, pose);
+  const p = j[dragging.from];
+  // Invert the forward step: x advances by cos(deg) * len * facing.
+  const deg = Math.atan2(my - p[1], (mx - p[0]) / pose.facing) * 180 / Math.PI;
+  pose[dragging.ch] = Math.round(deg * 10) / 10;
+  sync();
+});
+const stop = () => { dragging = null; cv.classList.remove('drag'); };
+cv.addEventListener('pointerup', stop);
+cv.addEventListener('pointercancel', stop);
+
+let last = performance.now() / 1000;
+function frame(now) {
+  now /= 1000;
+  const dt = Math.min(now - last, 0.05); last = now;
+
+  const shown = useSprings ? (rig.setTarget(pose), rig.step(dt)) : pose;
+
+  const w = cssW, h = cssH;
+  scale = Math.min(h / 300, 1.5);
+  ox = w / 2; oy = h - 30 - floorOffset(scale);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#f4f2ec';
+  ctx.fillRect(0, 0, w, h);
+
+  draw(ctx, { ...DANCER, scale }, shown, ox, oy);
+
+  // Handles, drawn over him so they stay findable against the black.
+  const j = solve({ ...DANCER, scale }, shown);
+  for (const hd of HANDLES) {
+    const [x, y] = j[hd.at];
+    ctx.beginPath();
+    ctx.arc(ox + x, oy + y, dragging === hd ? 7 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = dragging === hd ? '#ff5a36' : '#fff';
+    ctx.fill();
+    ctx.strokeStyle = '#ff5a36';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  requestAnimationFrame(frame);
+}
+resize(); sync(); requestAnimationFrame(frame);
+window.__ready = true;
+</script>
