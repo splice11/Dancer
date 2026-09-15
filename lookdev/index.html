@@ -1,0 +1,85 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dancer look-dev</title>
+<style>
+  body { margin: 0; background: #f4f2ec; font: 13px ui-sans-serif, system-ui, sans-serif; color: #111; }
+  #sheet { display: block; }
+</style>
+<canvas id="sheet"></canvas>
+<script type="module">
+import { draw } from './figure.js';
+import { STYLES } from './styles.js';
+import { POSES, SHEET } from './poses.js';
+import { solve } from './figure.js';
+
+// Baseline: how far the feet sit below the pelvis origin, so every style
+// stands on the same floor regardless of leg length.
+const floor = (st, scale) => {
+  const j = solve({ ...st, scale }, POSES.neutral);
+  return Math.max(j.ankleL[1], j.ankleR[1]) + (st.thick.ankle + st.thick.footDrop) * scale;
+};
+
+const keys = ['A', 'B', 'C', 'D'];
+const HERO_W = 300, HERO_H = 470;
+const CELL_W = 150, CELL_H = 226;
+const PAD = 28;
+
+const W = PAD * 2 + keys.length * HERO_W;
+const H = PAD + 40 + HERO_H + 56 + keys.length * (CELL_H + 54) + PAD;
+
+const c = document.getElementById('sheet');
+const dpr = 2;
+c.width = W * dpr; c.height = H * dpr;
+c.style.width = W + 'px'; c.style.height = H + 'px';
+const ctx = c.getContext('2d');
+ctx.scale(dpr, dpr);
+
+ctx.fillStyle = '#f4f2ec';
+ctx.fillRect(0, 0, W, H);
+
+const label = (t, x, y, size = 13, weight = 600, color = '#111') => {
+  ctx.fillStyle = color;
+  ctx.font = `${weight} ${size}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.fillText(t, x, y);
+};
+
+const wrap = (t, x, y, max) => {
+  ctx.fillStyle = '#6b665c';
+  ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+  let line = '', yy = y;
+  for (const word of t.split(' ')) {
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > max && line) { ctx.fillText(line, x, yy); yy += 14; line = word; }
+    else line = test;
+  }
+  ctx.fillText(line, x, yy);
+};
+
+// --- hero row: the four candidates, large, same pose -----------------------
+label('THE CHOICE — same pose, four builds', PAD, PAD + 16, 14, 700);
+keys.forEach((k, i) => {
+  const st = STYLES[k];
+  const x = PAD + i * HERO_W;
+  const y = PAD + 40;
+  if (i > 0) { ctx.strokeStyle = '#ded9cf'; ctx.beginPath(); ctx.moveTo(x - 6, y); ctx.lineTo(x - 6, y + HERO_H); ctx.stroke(); }
+  label(st.label, x + 10, y + 18, 13, 700);
+  wrap(st.note, x + 10, y + 36, HERO_W - 30);
+  draw(ctx, { ...st, scale: 1.05 }, POSES.point, x + HERO_W / 2 - 22, y + HERO_H - 26 - floor(st, 1.05));
+});
+
+// --- per-style pose sheets -------------------------------------------------
+let y0 = PAD + 40 + HERO_H + 66;
+keys.forEach((k) => {
+  const st = STYLES[k];
+  label(st.label, PAD, y0 - 10, 12, 700);
+  SHEET.forEach((pk, i) => {
+    const x = PAD + i * CELL_W;
+    draw(ctx, { ...st, scale: 0.72 }, POSES[pk], x + CELL_W / 2, y0 + CELL_H - 18 - floor(st, 0.72));
+    ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
+    label(pk, x + CELL_W / 2 - ctx.measureText(pk).width / 2, y0 + CELL_H + 6, 10, 500, '#9a948a');
+  });
+  y0 += CELL_H + 62;
+});
+
+document.title = 'ready';
+</script>
