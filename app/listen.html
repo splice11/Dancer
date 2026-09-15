@@ -1,0 +1,212 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Listening</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f4f2ec; color: #111;
+         font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  #stageWrap { position: relative; width: 100%; height: 56vh; min-height: 300px; }
+  #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .panel { max-width: 900px; margin: 0 auto; padding: 0 16px 40px; }
+  h1 { font-size: 14px; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 4px; }
+  p.sub { margin: 0 0 18px; color: #6b665c; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  button { font: inherit; padding: 7px 13px; border: 1px solid #d6d1c6; border-radius: 999px;
+           background: #fff; color: #111; cursor: pointer; }
+  button:hover { border-color: #111; }
+  button.on { background: #111; color: #f4f2ec; border-color: #111; }
+  /* Six tiles: three columns fills exactly two rows, so none is left stranded. */
+  .meters { display: grid; grid-template-columns: repeat(3, 1fr);
+            gap: 1px; background: #e2ddd3; border: 1px solid #e2ddd3; margin-bottom: 16px; }
+  @media (max-width: 760px) { .meters { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 420px) { .meters { grid-template-columns: 1fr; } }
+  .meters div { background: #f4f2ec; padding: 10px 12px; }
+  .meters dt { font: 10px/1 ui-monospace, monospace; letter-spacing: .1em;
+               text-transform: uppercase; color: #9a948a; margin-bottom: 6px; }
+  .meters dd { margin: 0; font: 18px/1.1 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .bar { height: 4px; background: #e2ddd3; margin-top: 8px; }
+  .bar i { display: block; height: 100%; background: #111; width: 0; }
+  .state { font: 15px/1.4 ui-sans-serif, sans-serif; margin-bottom: 14px; }
+  .state b { font-weight: 600; }
+  .who { color: #6b665c; font-family: ui-monospace, monospace; font-size: 11px; }
+  .note { color: #6b665c; border-top: 1px solid #e3ded4; padding-top: 14px; margin-top: 20px; }
+</style>
+
+<div id="stageWrap"><canvas id="stage"></canvas></div>
+
+<div class="panel">
+  <h1>Listening</h1>
+  <p class="sub">Play him something. He takes a few bars to decide whether he likes it, and he is allowed to decide he does not.</p>
+
+  <div class="row">
+    <button id="mic">Use microphone</button>
+    <button id="file">Play a file</button>
+    <button id="stopBtn">Stop</button>
+    <button id="oct">Tempo: as heard</button>
+    <input id="picker" type="file" accept="audio/*" hidden>
+    <audio id="audio" crossorigin="anonymous"></audio>
+  </div>
+
+  <p class="state">He is <b id="stateName">not listening</b>. <span id="stateWhy"></span></p>
+  <p class="who">this one <span id="tasteLine">—</span></p>
+
+  <dl class="meters">
+    <div><dt>Level</dt><dd id="mLevel">—</dd><div class="bar"><i id="bLevel"></i></div></div>
+    <div><dt>Brightness</dt><dd id="mBright">—</dd><div class="bar"><i id="bBright"></i></div></div>
+    <div><dt>Tempo</dt><dd id="mBpm">—</dd><div class="bar"><i id="bConf"></i></div></div>
+    <div><dt>Also heard at</dt><dd id="mAlt" style="font-size:12px">—</dd></div>
+    <div><dt>Verdict</dt><dd id="mVerdict">—</dd><div class="bar"><i id="bVerdict"></i></div></div>
+    <div><dt>Move</dt><dd id="mMove" style="font-size:14px">—</dd></div>
+  </dl>
+
+  <p class="note">
+    Onsets come from spectral flux — energy that has just appeared — and the beat is a
+    phase-locked loop nudged by each onset rather than reset by it, so one stray transient
+    cannot throw the grid. Flux is bass-weighted, because the kick is what carries the
+    pulse people move to; measuring across the whole spectrum lets hats and cymbals, which
+    subdivide, outvote it.
+    <br><br>
+    <b>It will not choose an octave for you.</b> Real music often has no single right
+    answer: the 1991 remix in this repo has its strongest periodicity at 116, which is the
+    dotted pulse of its own 174, while an offline pass over the whole track prefers 88. All
+    three are genuinely present, so “also heard at” shows the rivals and the tempo button
+    halves or doubles what he dances on.
+  </p>
+</div>
+
+<script type="module">
+import { draw, groundOffset, NEUTRAL } from '../src/figure.js';
+import { DANCER } from '../src/character.js';
+import { Rig } from '../src/rig.js';
+import { Idle } from '../src/idle.js';
+import { Ears } from '../src/listen.js';
+import { Brain, STATES } from '../src/brain.js';
+
+const cv = document.getElementById('stage');
+const wrap = document.getElementById('stageWrap');
+const ctx = cv.getContext('2d');
+const rig = new Rig();
+const idle = new Idle();
+const ears = new Ears();
+const brain = new Brain();
+
+const $ = (id) => document.getElementById(id);
+$('tasteLine').textContent = brain.describe();
+
+let dpr = 1, cssW = 0, cssH = 0, bounce = 0;
+
+ears.onBeat(() => {
+  const step = brain.beat();
+  if (!step) return;
+  rig.setTarget(step.pose);
+  bounce = step.nod ? 0.5 : 1;
+  $('mMove').textContent = step.move ? step.move.name : (step.nod ? 'nodding along' : '—');
+});
+
+brain.onState = (s) => {
+  $('stateName').textContent = s === 'idle' ? 'not listening' : s;
+  $('stateWhy').textContent = STATES[s] ? `(${STATES[s]})` : '';
+};
+
+async function guard(fn) {
+  try { await fn(); } catch (e) { $('stateWhy').textContent = '— ' + e.message; }
+}
+
+$('mic').addEventListener('click', () => guard(async () => {
+  await ears.useMic();
+  $('mic').classList.add('on'); $('file').classList.remove('on');
+}));
+
+$('file').addEventListener('click', () => $('picker').click());
+$('picker').addEventListener('change', () => guard(async () => {
+  const f = $('picker').files[0];
+  if (!f) return;
+  await playUrl(URL.createObjectURL(f));
+}));
+
+async function playUrl(url) {
+  const el = $('audio');
+  el.src = url;
+  el.loop = true;
+  if (!ears.ready || ears.kind !== 'file') await ears.useElement(el);
+  if (ears.ctx.state === 'suspended') await ears.ctx.resume();
+  await el.play();
+  $('file').classList.add('on'); $('mic').classList.remove('on');
+}
+window.__playUrl = playUrl;
+
+const OCTS = [[1, 'as heard'], [0.5, 'half-time'], [2, 'double-time']];
+let octIdx = 0;
+$('oct').addEventListener('click', () => {
+  octIdx = (octIdx + 1) % OCTS.length;
+  ears.octave = OCTS[octIdx][0];
+  if (ears.rawBpm) ears.bpm = ears.rawBpm * ears.octave;
+  $('oct').textContent = 'Tempo: ' + OCTS[octIdx][1];
+  $('oct').classList.toggle('on', octIdx !== 0);
+});
+
+$('stopBtn').addEventListener('click', () => {
+  $('audio').pause();
+  ears.stop();
+  $('mic').classList.remove('on'); $('file').classList.remove('on');
+});
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = wrap.getBoundingClientRect();
+  cssW = r.width; cssH = r.height;
+  cv.width = Math.round(cssW * dpr);
+  cv.height = Math.round(cssH * dpr);
+}
+addEventListener('resize', resize);
+resize();
+
+const pct = (v) => Math.round(v * 100) + '%';
+let last = performance.now() / 1000;
+
+function frame(now) {
+  now /= 1000;
+  const dt = Math.min(now - last, 0.05);
+  last = now;
+
+  ears.update(now, dt);
+  brain.update(now, dt, ears);
+
+  if (brain.state === 'idle' || brain.state === 'unimpressed') {
+    const s = idle.step(now, dt);
+    rig.setTarget(s.pose);
+    rig.pose.blink = s.blink;
+  }
+  bounce *= Math.pow(0.02, dt);
+  rig.step(dt);
+
+  $('mLevel').textContent = ears.ready ? pct(ears.level) : '—';
+  $('bLevel').style.width = pct(ears.level);
+  $('mBright').textContent = ears.ready ? pct(ears.brightness) : '—';
+  $('bBright').style.width = pct(ears.brightness);
+  $('mBpm').textContent = ears.bpm ? Math.round(ears.bpm) + (ears.halfTime ? ' ½' : '') : '—';
+  $('bConf').style.width = pct(ears.confidence);
+  $('mAlt').textContent = (ears.peaks || []).slice(1, 4).map((q) => Math.round(q.bpm)).join('  ') || '—';
+  $('mVerdict').textContent = brain.verdict ? brain.verdict.toFixed(2) : '—';
+  $('bVerdict').style.width = pct(brain.verdict);
+
+  const w = cssW, h = cssH;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#f4f2ec';
+  ctx.fillRect(0, 0, w, h);
+
+  const scale = Math.min(h / 330, 1.45);
+  // A small settle on each beat, so even nodding along reads as on the music.
+  const lift = bounce * 6 * scale;
+  draw(ctx, { ...DANCER, scale }, rig.pose,
+       w / 2, h - 24 - groundOffset({ ...DANCER, scale }) + lift);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__ready = true;
+window.__probe = () => ({ bpm: ears.bpm, half: ears.halfTime, conf: ears.confidence,
+                          level: ears.level, bright: ears.brightness,
+                          state: brain.state, verdict: brain.verdict, peaks: ears.peaks });
+</script>

@@ -9,9 +9,15 @@ Runs in the browser. Open from a static server:
 npx http-server -p 8099 -s .
 ```
 
-- `app/index.html` — him, idling. Fire a pose and watch the follow-through.
-- `app/editor.html` — pose editor. Drag joints, copy the pose out.
+- `app/listen.html` — play him something. He decides whether he likes it.
+- `app/dance.html` — dancing to a metronome, with the move library.
+- `app/index.html` — him, idling. Drag to walk around him; switch on watch
+  cursor and he follows it with his eyes.
+- `app/editor.html` — pose editor. Drag joints, drag elsewhere to orbit.
+- `app/turntable.html` — every pose at eight body angles, for checking that a
+  pose reads from more than the one camera it was authored at.
 - `lookdev/index.html`, `lookdev/tune.html` — how the character was chosen.
+  These render through a frozen copy of the 2D renderer that existed then.
 
 ## Layout
 
@@ -25,6 +31,29 @@ src/
 app/             the pages you actually open
 lookdev/         the look-dev and tuning sheets, kept as a record
 ```
+
+## The skeleton is 3D; the renderer is not
+
+Joints solve in his own space, turn about the vertical, project to the screen,
+then draw as flat black capsules. That works because the art style has no
+surface — no texture, no shading, no normals — so a capsule looks identical
+from every angle. Almost all the cost of a 3D character lives in the surface he
+does not have.
+
+It also fixed a real problem rather than adding a feature. The old 2D rig could
+not express a front view at all: shoulder separation was offset along screen-x,
+which was also the facing axis, so there was only one lateral direction and the
+far arm kept vanishing into the torso. In 3D, a front view separates the
+shoulders across the screen and a side view separates them in depth, from the
+same skeleton.
+
+Each bone carries a pitch and a yaw (`<bone>Y`). Pitch swings it forward and
+back, yaw swings it out to the side. `turn` is the whole body's yaw: 0 faces
+the camera, 90 is the old side-on view.
+
+His eyes are two discs riding the head sphere, placed by a direction rather
+than a screen offset — so they foreshorten as he turns, slip round the side,
+and come back. That is what lets him look at you, or away.
 
 ## How he is drawn
 
@@ -56,12 +85,60 @@ The consequence worth knowing: **a dance move is just a target pose.** Set a
 new target on the beat and the springs generate every frame between, including
 the follow-through. Almost no keyframes needed.
 
-## Known compromise
+## The hips
 
-His hips are narrow, which is what stopped them reading wide. The cost is that
-his legs sit close together and read as one column with a seam rather than two
-clearly separate legs. Widening the torso instead fixes the legs but swallows
-the arms, so this was the better trade.
+The old fix was narrow hips, which cost him separate-looking legs. In 3D the
+renderer draws a bar between the two hip joints, so the thighs emerge from the
+ends of a wide pelvis rather than flaring out of a narrow one — which holds at
+every angle, not just head-on, and let the hips go back to a normal width.
+
+## Projection lives in one place
+
+`solve` applies perspective per joint, so anything that converts between screen
+space and the rig has to agree with it. `groundOffset` and `aimBone` (the
+editor's drag-to-angle inverse) live in `figure.js` for that reason. A page that
+recomputes either one silently breaks when a bone changes — and canvas draws
+nothing at all for `NaN` coordinates, with no error, so it breaks quietly.
+
+## Hearing
+
+`src/listen.js` runs on one AnalyserNode: a level, a spectral-flux onset
+strength, a brightness, and a beat. No library.
+
+Three things in it were not obvious:
+
+- **The novelty curve must be uniformly sampled.** It gets autocorrelated, and
+  a lag only maps to a tempo if every sample is the same distance apart.
+  Animation frames are not — they jitter and throttle — so flux is accumulated
+  into fixed hops off the wall clock rather than one sample per frame.
+- **The autocorrelation uses the biased estimator**, dividing by the window
+  length rather than by the number of overlapping terms. Dividing by the
+  overlap makes long lags look strong on very little evidence; it was scoring
+  31 BPM above everything else.
+- **Flux is bass-weighted.** The kick carries the pulse people move to.
+  Measuring across the whole spectrum lets hats and cymbals, which subdivide,
+  outvote it.
+
+It will not choose an octave for you. The 1991 remix in this repo has its
+strongest 12-second periodicity at 116 — the dotted pulse of its own 174 —
+while an offline pass over the whole track prefers 88. All three are really
+there, so the page shows the rivals and offers a half/double control.
+
+## Deciding
+
+`src/brain.js` is the part the brief actually asked for: an NPC who *can
+decide not to*. He listens for a few bars, nods along while judging, and only
+then commits.
+
+The verdict is a weighted **geometric** mean of tempo fit, brightness fit,
+drive and groove — not a sum. A sum lets a loud track with a good groove paper
+over a tempo he has no feel for, and he ends up dancing to everything, which
+is not a taste but a slot machine that always pays. A product means one weak
+ingredient drags the whole verdict down, the way an opinion works.
+
+His taste is fixed for the life of the instance, so he is recognisably the
+same guy. His mood is resampled every time he judges something, so the same
+track can land differently on different days.
 
 ## Reference material
 
